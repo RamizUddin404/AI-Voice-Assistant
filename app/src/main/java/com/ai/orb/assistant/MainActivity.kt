@@ -13,12 +13,23 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        
+        // Auto-Start attempt if already granted
+        if (hasAllPermissions()) {
+            startService(Intent(this, FloatingBubbleService::class.java))
+            finish()
+        }
 
+        setContentView(R.layout.activity_main)
         val btnStart = findViewById<Button>(R.id.btnStart)
         btnStart.setOnClickListener {
             checkPermissionsAndStart()
         }
+    }
+
+    private fun hasAllPermissions(): Boolean {
+        val overlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
+        return overlay && isAccessibilityServiceEnabled()
     }
 
     private fun checkPermissionsAndStart() {
