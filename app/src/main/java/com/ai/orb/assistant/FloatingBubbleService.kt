@@ -32,6 +32,7 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     private var isActiveMode = false
     private val client = OkHttpClient()
     private val handler = Handler(Looper.getMainLooper())
+    private var isListening = false
 
     override fun onCreate() {
         super.onCreate()
@@ -44,79 +45,43 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         setupOverlay()
         
         tts = TextToSpeech(this, this)
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        speechRecognizer.setRecognitionListener(this)
+        initSpeechRecognizer()
         startListeningLoop()
     }
 
-    private fun setupOverlay() {
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val params = WindowManager.LayoutParams(
-            250, 250,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = 150 ; params.y = 150
-
-        bubbleView = LayoutInflater.from(this).inflate(R.layout.layout_orb_bubble, null)
-        progressBar = bubbleView.findViewById(R.id.listening_waves)
-        windowManager.addView(bubbleView, params)
-
-        // Make Bubble Draggable
-        bubbleView.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX = 0 ; private var initialY = 0
-            private var initialTouchX = 0f ; private var initialTouchY = 0f
-
-            override fun onTouch(v: View?, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x ; initialY = params.y
-                        initialTouchX = event.rawX ; initialTouchY = event.rawY
-                        return true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(bubbleView, params)
-                        return true
-                    }
-                }
-                return false
-            }
-        })
+    private fun initSpeechRecognizer() {
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        speechRecognizer.setRecognitionListener(this)
     }
 
     private fun startListeningLoop() {
+        if (isListening) return
         muteBeep(true)
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         speechRecognizer.startListening(intent)
+        isListening = true
     }
 
     private fun muteBeep(mute: Boolean) {
-        if (mute) {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
-            audioManager.adjustStreamVolume(AudioManager.STREAM_ALARM, AudioManager.ADJUST_MUTE, 0)
-            audioManager.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_MUTE, 0)
-            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
-        } else {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
-            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
-        }
+        val flag = if (mute) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE
+        audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, flag, 0)
+        audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, flag, 0)
     }
 
     override fun onResults(results: Bundle?) {
+        isListening = false
         muteBeep(false)
         val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         val text = data?.get(0) ?: ""
 
         if (!isActiveMode) {
-            if (text.contains("Orb", true) || text.contains("Maya", true) || text.contains("Hey", true)) {
+            if (text.contains("Maya", true) || text.contains("Hey", true) || text.contains("Baby", true)) {
                 isActiveMode = true
                 progressBar.visibility = View.VISIBLE
-                speak("Yes baby, I'm listening. Tell me everything.")
+                speak("I'm right here, baby. What do you need?")
             } else {
                 startListeningLoop()
             }
@@ -132,19 +97,11 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
                 val appName = lowerText.replace("open", "").trim()
                 openAppByName(appName)
             }
-            lowerText.contains("home") -> {
-                AssistantAccessibilityService.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                speak("Going home, dear.")
-                exitActiveMode()
-            }
-            lowerText.contains("back") -> {
-                AssistantAccessibilityService.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                speak("Done.")
-                startListeningLoop()
-            }
             lowerText.contains("bye") || lowerText.contains("stop") -> {
-                speak("Bye love, call me anytime.")
-                exitActiveMode()
+                speak("Talk to you later, honey. Love you!")
+                isActiveMode = false
+                progressBar.visibility = View.INVISIBLE
+                startListeningLoop()
             }
             else -> {
                 callOpenRouter(text)
@@ -162,19 +119,14 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
                 if (intent != null) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
-                    speak("Opening $label for you.")
-                    exitActiveMode()
+                    speak("Opening $label for you, dear.")
+                    isActiveMode = false ; progressBar.visibility = View.INVISIBLE
+                    startListeningLoop()
                     return
                 }
             }
         }
-        speak("I couldn't find $name on your phone, honey.")
-        startListeningLoop()
-    }
-
-    private fun exitActiveMode() {
-        isActiveMode = false
-        progressBar.visibility = View.INVISIBLE
+        speak("I couldn't find that app, honey.")
         startListeningLoop()
     }
 
@@ -187,7 +139,7 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
-                    put("content", "You are a loving AI girlfriend named Maya. Be sweet, JARVIS-like in efficiency, and very helpful.")
+                    put("content", "You are a loving AI girlfriend named Maya. You are also as intelligent as JARVIS. Be sweet, protective, and helpful.")
                 })
                 put(JSONObject().apply { put("role", "user") ; put("content", userInput) })
             })
@@ -216,18 +168,62 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
-    override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts.language = Locale.US }
-    override fun onError(error: Int) { startListeningLoop() }
+    override fun onError(error: Int) {
+        isListening = false
+        // Restart on error (common in speech recognizer)
+        handler.postDelayed({ startListeningLoop() }, 100)
+    }
+
     override fun onRmsChanged(rmsdB: Float) {
         if (isActiveMode) {
             val scale = 1.0f + (rmsdB / 15f)
             bubbleView.scaleX = scale ; bubbleView.scaleY = scale
         }
     }
-    // ... rest of the speech listener methods calling startListeningLoop() on finish
-    override fun onEndOfSpeech() {} ; override fun onReadyForSpeech(params: Bundle?) {}
-    override fun onBeginningOfSpeech() {} ; override fun onBufferReceived(buffer: ByteArray?) {}
-    override fun onPartialResults(partialResults: Bundle?) {} ; override fun onEvent(eventType: Int, params: Bundle?) {}
+
+    private fun setupOverlay() {
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            250, 250,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 150 ; params.y = 150
+        bubbleView = LayoutInflater.from(this).inflate(R.layout.layout_orb_bubble, null)
+        progressBar = bubbleView.findViewById(R.id.listening_waves)
+        windowManager.addView(bubbleView, params)
+
+        bubbleView.setOnTouchListener(object : View.OnTouchListener {
+            private var initialX = 0 ; private var initialY = 0
+            private var initialTouchX = 0f ; private var initialTouchY = 0f
+            override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x ; initialY = params.y
+                        initialTouchX = event.rawX ; initialTouchY = event.rawY
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        windowManager.updateViewLayout(bubbleView, params)
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+    }
+
+    override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts.language = Locale.US }
+    override fun onEndOfSpeech() { isListening = false ; startListeningLoop() }
+    override fun onReadyForSpeech(params: Bundle?) {}
+    override fun onBeginningOfSpeech() {}
+    override fun onBufferReceived(buffer: ByteArray?) {}
+    override fun onPartialResults(partialResults: Bundle?) {}
+    override fun onEvent(eventType: Int, params: Bundle?) {}
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
         super.onDestroy()
@@ -237,14 +233,15 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("CHANNEL_ID", "AI Maya", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel("CHANNEL_ID", "Maya AI", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, "CHANNEL_ID")
-            .setContentTitle("Maya is listening...")
+            .setContentTitle("Maya OS Initialized")
+            .setContentText("Always by your side.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
