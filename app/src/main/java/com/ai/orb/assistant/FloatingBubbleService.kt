@@ -91,12 +91,15 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         handler.postDelayed(silenceTimer!!, 15000) // 15 seconds of silence before standby
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
+    }
+
     override fun onResults(results: Bundle?) {
         val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         val text = data?.get(0) ?: ""
 
         if (!isActiveMode) {
-            // Wake up with "Orb", "Hey", "Hi", "Sweetie" etc.
             if (text.contains("Orb", true) || text.contains("Hey", true) || text.contains("Sweetie", true) || text.contains("Hi", true)) {
                 startActiveListening("Yes baby, I'm here. What's on your mind?")
             } else {
