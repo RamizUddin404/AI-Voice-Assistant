@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.ai.orb.assistant">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -16,14 +15,11 @@
         android:label="AI Orb Assistant"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
-        <!-- Main Foreground Service for Floating Bubble -->
         <service
             android:name=".FloatingBubbleService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_SERVICE_TYPE" android:value="This service provides a floating UI and background voice recognition for system-wide AI assistance." />
-        </service>
+            android:foregroundServiceType="microphone">
 
         <!-- Accessibility Service for System Controls -->
         <service
