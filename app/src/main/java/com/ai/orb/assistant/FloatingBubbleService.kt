@@ -7,10 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.os.Build
-import android.os.Bundle
-import android.os.IBinder
-import android.os.PowerManager
+import android.os.*
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -37,6 +34,8 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     private lateinit var progressBar: ProgressBar
     private var isActiveMode = false
     private val client = OkHttpClient()
+    private val handler = Handler(Looper.getMainLooper())
+    private var silenceTimer: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -60,7 +59,7 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.TOP or Gravity.START
-        params.x = 100 ; params.y = 100
+        params.x = 150 ; params.y = 150
         bubbleView = LayoutInflater.from(this).inflate(R.layout.layout_orb_bubble, null)
         progressBar = bubbleView.findViewById(R.id.listening_waves)
         windowManager.addView(bubbleView, params)
@@ -74,13 +73,22 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         speechRecognizer.startListening(intent)
     }
 
-    private fun startActiveListening() {
+    private fun startActiveListening(initialGreeting: String?) {
         isActiveMode = true
         progressBar.visibility = View.VISIBLE
-        speak("Yes? Tell me, friend.")
+        if (initialGreeting != null) speak(initialGreeting)
+        
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         speechRecognizer.startListening(intent)
+        
+        resetSilenceTimer()
+    }
+
+    private fun resetSilenceTimer() {
+        silenceTimer?.let { handler.removeCallbacks(it) }
+        silenceTimer = Runnable { startStandbyListening() }
+        handler.postDelayed(silenceTimer!!, 15000) // 15 seconds of silence before standby
     }
 
     override fun onResults(results: Bundle?) {
@@ -88,8 +96,9 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         val text = data?.get(0) ?: ""
 
         if (!isActiveMode) {
-            if (text.contains("Orb", true) || text.contains("Assistant", true) || text.contains("Hey", true)) {
-                startActiveListening()
+            // Wake up with "Orb", "Hey", "Hi", "Sweetie" etc.
+            if (text.contains("Orb", true) || text.contains("Hey", true) || text.contains("Sweetie", true) || text.contains("Hi", true)) {
+                startActiveListening("Yes baby, I'm here. What's on your mind?")
             } else {
                 startStandbyListening()
             }
@@ -102,14 +111,22 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         val lowerText = text.lowercase()
         when {
             lowerText.contains("open youtube") -> {
-                speak("Opening YouTube for you.")
+                speak("Sure dear, opening YouTube for you.")
                 val intent = packageManager.getLaunchIntentForPackage("com.google.android.youtube")
                 intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
+                startActiveListening(null) // Stay active for next command
+            }
+            lowerText.contains("scroll down") -> {
+                speak("Okay, scrolling down.")
+                AssistantAccessibilityService.instance?.performScrollDown()
+                startActiveListening(null)
+            }
+            lowerText.contains("bye") || lowerText.contains("stop") -> {
+                speak("Okay, talk to you later. Love you!")
                 startStandbyListening()
             }
             else -> {
-                speak("Let me think...")
                 callOpenRouter(text)
             }
         }
@@ -120,11 +137,11 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         val apiKey = prefs.getString("api_key", "") ?: return
 
         val json = JSONObject().apply {
-            put("model", "openai/gpt-3.5-turbo") // You can change this to any model
+            put("model", "mistralai/mistral-7b-instruct:free") // Fast and free model
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
-                    put("content", "You are a friendly and helpful AI assistant named Orb. Talk like a friend.")
+                    put("content", "You are the user's loving, sweet, and caring AI girlfriend named Maya. Be very friendly, use sweet words, ask about their day, and be supportive. Keep responses conversational and not too long.")
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -136,14 +153,13 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         val request = Request.Builder()
             .url("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", "Bearer $apiKey")
-            .header("HTTP-Referer", "https://your-app-domain.com") // Optional
             .post(json.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                speak("Sorry, I couldn't reach my brain.")
-                startStandbyListening()
+                speak("I'm having a little trouble connecting. Try again?")
+                startActiveListening(null)
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -155,10 +171,9 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
                         .getJSONObject("message")
                         .getString("content")
                     speak(aiResponse)
-                } else {
-                    speak("My API key might be wrong.")
                 }
-                startStandbyListening()
+                // Stay in active mode to continue conversation
+                handler.post { startActiveListening(null) }
             }
         })
     }
@@ -168,19 +183,28 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) tts.language = Locale.US
+        if (status == TextToSpeech.SUCCESS) {
+            tts.language = Locale.US
+            // Set a slightly higher pitch for a more feminine voice if available
+            tts.setPitch(1.2f)
+            tts.setSpeechRate(1.0f)
+        }
     }
 
-    override fun onError(error: Int) { startStandbyListening() }
-    override fun onEndOfSpeech() {}
-    override fun onReadyForSpeech(params: Bundle?) {}
-    override fun onBeginningOfSpeech() {}
     override fun onRmsChanged(rmsdB: Float) {
         if (isActiveMode) {
-            val scale = 1.0f + (rmsdB / 20f)
+            val scale = 1.0f + (rmsdB / 15f)
             bubbleView.scaleX = scale ; bubbleView.scaleY = scale
         }
     }
+
+    override fun onError(error: Int) { 
+        if (isActiveMode) startActiveListening(null) else startStandbyListening()
+    }
+
+    override fun onEndOfSpeech() {}
+    override fun onReadyForSpeech(params: Bundle?) {}
+    override fun onBeginningOfSpeech() {}
     override fun onBufferReceived(buffer: ByteArray?) {}
     override fun onPartialResults(partialResults: Bundle?) {}
     override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -195,15 +219,15 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("CHANNEL_ID", "AI Assistant", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel("CHANNEL_ID", "AI Girlfriend", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, "CHANNEL_ID")
-            .setContentTitle("AI Friend Active")
-            .setContentText("Say 'Orb' to talk.")
+            .setContentTitle("Maya is here for you")
+            .setContentText("Say 'Hey' to talk to your AI girlfriend.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
