@@ -49,20 +49,24 @@ class MainActivity : AppCompatActivity() {
                 startActivity(intent)
                 Toast.makeText(this, "Allow 'Display over other apps'", Toast.LENGTH_LONG).show()
             }
-            !isAccessibilityServiceEnabled() -> {
-                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                startActivity(intent)
-                Toast.makeText(this, "Enable 'AI Assistant Accessibility'", Toast.LENGTH_LONG).show()
-            }
-            !isIgnoringBatteryOptimizations() -> {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
-                startActivity(intent)
-            }
             else -> {
                 val serviceIntent = Intent(this, FloatingBubbleService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(this, serviceIntent)
                 else startService(serviceIntent)
-                Toast.makeText(this, "JARVIS is now active in background!", Toast.LENGTH_SHORT).show()
+
+                if (!isAccessibilityServiceEnabled()) {
+                    Toast.makeText(
+                        this,
+                        "JARVIS started. Enable its Accessibility Service only for scroll/gesture commands.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(this, "JARVIS voice assistant started.", Toast.LENGTH_SHORT).show()
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isIgnoringBatteryOptimizations()) {
+                    Toast.makeText(this, "For better background reliability, allow JARVIS to run without battery optimization.", Toast.LENGTH_LONG).show()
+                }
                 finish()
             }
         }
