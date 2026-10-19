@@ -11,6 +11,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.*
 import android.widget.ProgressBar
 import androidx.core.app.NotificationCompat
@@ -33,6 +34,7 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     private val client = OkHttpClient()
     private val handler = Handler(Looper.getMainLooper())
     private var isListening = false
+    private var isSpeaking = false
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
@@ -59,7 +61,7 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     }
 
     private fun startListeningLoop() {
-        if (isListening || !::speechRecognizer.isInitialized) return
+        if (isListening || isSpeaking || !::speechRecognizer.isInitialized) return
         try {
             wakeLock?.let { if (!it.isHeld) it.acquire(10 * 60 * 1000L) }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -240,7 +242,15 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     }
 
     private fun speak(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        if (!::tts.isInitialized) return
+        isSpeaking = true
+        if (::speechRecognizer.isInitialized && isListening) {
+            try { speechRecognizer.cancel() } catch (_: Exception) { }
+            isListening = false
+            muteBeep(false)
+        }
+        val utteranceId = "jarvis-${System.currentTimeMillis()}"
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
     override fun onError(error: Int) {
@@ -297,6 +307,22 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
             val preferred = Locale.getDefault()
             if (tts.isLanguageAvailable(preferred) >= TextToSpeech.LANG_AVAILABLE) tts.language = preferred
             else tts.language = Locale.US
+            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) { }
+                override fun onDone(utteranceId: String?) {
+                    handler.post {
+                        isSpeaking = false
+                        startListeningLoop()
+                    }
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    handler.post {
+                        isSpeaking = false
+                        startListeningLoop()
+                    }
+                }
+            })
         }
     }
     override fun onEndOfSpeech() { isListening = false }
