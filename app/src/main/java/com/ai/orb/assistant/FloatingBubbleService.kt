@@ -132,7 +132,14 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
 
     private fun callOpenRouter(userInput: String) {
         val prefs = getSharedPreferences("assistant_prefs", Context.MODE_PRIVATE)
-        val apiKey = prefs.getString("api_key", "") ?: return
+        val apiKey = prefs.getString("api_key", "").orEmpty().trim()
+        if (apiKey.isEmpty()) {
+            handler.post {
+                speak("Please add your OpenRouter API key in the app settings.")
+                startListeningLoop()
+            }
+            return
+        }
 
         val json = JSONObject().apply {
             put("model", "mistralai/mistral-7b-instruct:free")
@@ -152,14 +159,40 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
             .build()
 
         client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { startListeningLoop() }
-            override fun onResponse(call: Call, response: Response) {
-                val responseData = response.body?.string()
-                if (response.isSuccessful && responseData != null) {
-                    val aiResponse = JSONObject(responseData).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-                    speak(aiResponse)
+            override fun onFailure(call: Call, e: IOException) {
+                handler.post {
+                    speak("I couldn't connect to the AI service. Please check your internet connection.")
+                    startListeningLoop()
                 }
-                handler.post { startListeningLoop() }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val responseData = it.body?.string()
+                    handler.post {
+                        if (it.isSuccessful && !responseData.isNullOrBlank()) {
+                            try {
+                                val aiResponse = JSONObject(responseData)
+                                    .getJSONArray("choices")
+                                    .getJSONObject(0)
+                                    .getJSONObject("message")
+                                    .getString("content")
+                                speak(aiResponse)
+                            } catch (_: Exception) {
+                                speak("The AI service returned an unexpected response.")
+                            }
+                        } else {
+                            speak(
+                                when (it.code) {
+                                    401, 403 -> "The API key was rejected. Please check your OpenRouter key."
+                                    429 -> "The AI service is rate limited. Please try again later."
+                                    else -> "The AI request failed with status ${it.code}."
+                                }
+                            )
+                        }
+                        startListeningLoop()
+                    }
+                }
             }
         })
     }
