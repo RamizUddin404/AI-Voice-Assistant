@@ -1,37 +1,51 @@
-# AI Voice Assistant - Futuristic Orb
+# JARVIS AI Assistant for Android
 
-This is a professional AI Voice Assistant for Android featuring a floating interactive 3D-style neon orb.
+A voice-first Android assistant with a movable floating orb, OpenRouter-powered chat, local voice commands, and optional Accessibility Service actions.
 
-## Features
-- **Floating Interactive Bubble**: Always-on-top UI for quick access.
-- **Background Service**: Runs continuously with a WakeLock to prevent the system from killing the process.
-- **Speech System**: Uses Android's SpeechRecognizer for online/offline voice commands.
-- **Accessibility Control**: Can perform system-wide gestures like scrolling and clicking.
-- **System Access**: Can open apps and interact with other applications.
+## Current capabilities
 
-## How to Build
-1. Open **Android Studio**.
-2. Select **Open** and choose the `AI-Voice-Assistant` folder.
-3. Wait for Gradle to sync.
-4. Build and run on your Android device (Android 7.0+ recommended).
+- Wake phrase: say **“Jarvis”** (recognition availability depends on the installed Android speech service).
+- AI chat through the OpenRouter Chat Completions API using a key you provide.
+- Local commands: open an installed app, tell the time/date, adjust media volume, and scroll up/down when Accessibility is enabled.
+- Text-to-speech follows the phone's default locale when supported.
+- Foreground service notification while the assistant is active.
+- API/network error messages and safer service cleanup.
 
-## Setup After Installation
-1. Launch the app and click **ACTIVATE**.
-2. You will be prompted to allow **Display over other apps**. Enable it.
-3. You will be prompted to enable **Accessibility Service**. Find "AI Assistant Accessibility" and turn it on.
-4. The Neon Orb will appear on your screen.
+## Build APK
 
-## Voice Commands
-- "Orb, open YouTube"
-- "Orb, scroll down"
-- (You can add more logic in `FloatingBubbleService.kt`)
+The repository includes a GitHub Actions workflow that builds a debug APK on pushes to `master`.
 
-## GitHub Setup
-To push this to your GitHub repository:
+1. Open the **Actions** tab in this repository.
+2. Select **Android Build APK** and open the newest run.
+3. When the run succeeds, download the `AI-Assistant-Debug-APK` artifact and extract the APK.
+
+For a local build with Android SDK and Java 11 installed:
+
 ```bash
-git init
-git add .
-git commit -m "Initial commit of AI Voice Assistant"
-git remote add origin YOUR_GITHUB_REPO_URL
-git push -u origin main
+chmod +x gradlew
+./gradlew assembleDebug
 ```
+
+APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+
+## First-time setup
+
+1. Install and open the APK.
+2. Enter your own OpenRouter API key. The key is stored in the app's private preferences; this is not encrypted secret storage, so do not use a key with more spending access than necessary.
+3. Grant microphone and overlay permissions when prompted.
+4. Enable the assistant Accessibility Service only if you want scroll/gesture commands.
+5. Keep the foreground-service notification visible while using voice features.
+
+## Important Android limits
+
+- Android does not guarantee a permanent always-on wake-word listener. Battery optimization, the speech recognition provider, microphone restrictions, and OEM background management can stop recognition.
+- Speech recognition language support depends on the phone's installed recognition service. Bangla recognition is not guaranteed by every provider.
+- This app does not have root access and cannot silently bypass Android permissions. Wi-Fi/Bluetooth control, protected settings, and some app actions are restricted by Android.
+- Accessibility access is powerful. Enable it only if you understand and want the described on-screen gesture features.
+- This debug APK is not a Play Store release. Release signing, privacy policy, testing, and policy review are still needed before publishing.
+
+## Project
+
+- Package: `com.ai.orb.assistant`
+- Minimum Android version: Android 7.0 (API 24)
+- AI endpoint: `https://openrouter.ai/api/v1/chat/completions`
