@@ -283,21 +283,34 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         bubbleView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0 ; private var initialY = 0
             private var initialTouchX = 0f ; private var initialTouchY = 0f
+            private var moved = false
             override fun onTouch(v: View?, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x ; initialY = params.y
                         initialTouchX = event.rawX ; initialTouchY = event.rawY
+                        moved = false
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) moved = true
+                        params.x = initialX + dx.toInt()
+                        params.y = initialY + dy.toInt()
                         windowManager.updateViewLayout(bubbleView, params)
                         return true
                     }
+                    MotionEvent.ACTION_UP -> {
+                        if (!moved) {
+                            isActiveMode = !isActiveMode
+                            progressBar.visibility = if (isActiveMode) View.VISIBLE else View.INVISIBLE
+                            speak(if (isActiveMode) "জার্ভিস অনলাইন। কী করতে পারি?" else "জার্ভিস standby mode-এ আছে।")
+                        }
+                        return true
+                    }
                 }
-                return false
+                return true
             }
         })
     }
