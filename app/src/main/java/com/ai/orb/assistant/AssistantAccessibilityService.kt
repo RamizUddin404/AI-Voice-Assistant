@@ -30,11 +30,11 @@ class AssistantAccessibilityService : AccessibilityService() {
     }
 
     fun performScrollDown() {
-        dispatchScroll(0f, 1f)
+        dispatchScroll(1f, 0f)
     }
 
     fun performScrollUp() {
-        dispatchScroll(1f, 0f)
+        dispatchScroll(0f, 1f)
     }
 
     private fun dispatchScroll(from: Float, to: Float) {
