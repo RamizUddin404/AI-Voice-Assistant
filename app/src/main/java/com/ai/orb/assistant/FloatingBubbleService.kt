@@ -66,8 +66,10 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
             wakeLock?.let { if (!it.isHeld) it.acquire(10 * 60 * 1000L) }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             }
             isListening = true
             muteBeep(true)
@@ -89,10 +91,14 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         isListening = false
         muteBeep(false)
         val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        val text = data?.get(0) ?: ""
+        val text = data?.firstOrNull { it.isNotBlank() } ?: ""
+        if (text.isBlank()) {
+            handler.postDelayed({ startListeningLoop() }, 300)
+            return
+        }
 
         if (!isActiveMode) {
-            if (text.contains("Jarvis", true) || text.contains("জার্ভিস", true)) {
+            if (text.contains("Jarvis", true) || text.contains("জার্ভিস", true) || text.contains("জারভিস", true)) {
                 isActiveMode = true
                 progressBar.visibility = View.VISIBLE
                 speak("জার্ভিস অনলাইন। কী করতে পারি?")
@@ -255,8 +261,21 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
 
     override fun onError(error: Int) {
         isListening = false
-        // Restart on error (common in speech recognizer)
-        handler.postDelayed({ startListeningLoop() }, 100)
+        muteBeep(false)
+        // SpeechRecognizer reports these routinely when the user is silent or a network is unavailable.
+        val delay = when (error) {
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 900L
+            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> 1800L
+            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> 1400L
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> 2500L
+            else -> 500L
+        }
+        handler.removeCallbacks(restartListeningRunnable)
+        handler.postDelayed(restartListeningRunnable, delay)
+    }
+
+    private val restartListeningRunnable = Runnable {
+        if (!isSpeaking) startListeningLoop()
     }
 
     override fun onRmsChanged(rmsdB: Float) {
@@ -347,7 +366,10 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
+        if (::speechRecognizer.isInitialized) {
+            try { speechRecognizer.cancel() } catch (_: Exception) { }
+            speechRecognizer.destroy()
+        }
         if (::tts.isInitialized) tts.shutdown()
         if (::windowManager.isInitialized && ::bubbleView.isInitialized) {
             try { windowManager.removeView(bubbleView) } catch (_: Exception) { }
