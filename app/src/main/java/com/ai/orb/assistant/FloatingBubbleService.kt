@@ -33,12 +33,16 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     private val client = OkHttpClient()
     private val handler = Handler(Looper.getMainLooper())
     private var isListening = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AIAssistant::WakeLock").acquire()
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AIAssistant::WakeLock").apply {
+            setReferenceCounted(false)
+            acquire(10 * 60 * 1000L)
+        }
         
         createNotificationChannel()
         startForeground(1, createNotification())
@@ -55,14 +59,22 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     }
 
     private fun startListeningLoop() {
-        if (isListening) return
-        muteBeep(true)
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        speechRecognizer.startListening(intent)
-        isListening = true
+        if (isListening || !::speechRecognizer.isInitialized) return
+        try {
+            wakeLock?.let { if (!it.isHeld) it.acquire(10 * 60 * 1000L) }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            isListening = true
+            muteBeep(true)
+            speechRecognizer.startListening(intent)
+        } catch (_: Exception) {
+            isListening = false
+            muteBeep(false)
+            handler.postDelayed({ startListeningLoop() }, 1200)
+        }
     }
 
     private fun muteBeep(mute: Boolean) {
@@ -78,10 +90,10 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         val text = data?.get(0) ?: ""
 
         if (!isActiveMode) {
-            if (text.contains("Maya", true) || text.contains("Hey", true) || text.contains("Baby", true)) {
+            if (text.contains("Jarvis", true) || text.contains("জার্ভিস", true)) {
                 isActiveMode = true
                 progressBar.visibility = View.VISIBLE
-                speak("I'm right here, baby. What do you need?")
+                speak("জার্ভিস অনলাইন। কী করতে পারি?")
             } else {
                 startListeningLoop()
             }
@@ -91,21 +103,51 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     }
 
     private fun processUniversalCommand(text: String) {
-        val lowerText = text.lowercase()
+        val command = text.trim()
+        val lowerText = command.lowercase(Locale.ROOT)
         when {
-            lowerText.contains("open") -> {
-                val appName = lowerText.replace("open", "").trim()
-                openAppByName(appName)
-            }
-            lowerText.contains("bye") || lowerText.contains("stop") -> {
-                speak("Talk to you later, honey. Love you!")
+            lowerText in listOf("stop", "stop listening", "goodbye", "bye", "বন্ধ কর", "থামো") -> {
                 isActiveMode = false
                 progressBar.visibility = View.INVISIBLE
+                speak("ঠিক আছে। আবার ডাকলে চলে আসব।")
+                handler.postDelayed({ startListeningLoop() }, 900)
+            }
+            lowerText.contains("open ") || lowerText.startsWith("খোলো ") || lowerText.startsWith("চালু কর ") -> {
+                val appName = lowerText.replaceFirst(Regex("^(open|খোলো|চালু কর)\\s*"), "").trim()
+                if (appName.isBlank()) {
+                    speak("কোন অ্যাপ খুলব?")
+                    startListeningLoop()
+                } else openAppByName(appName)
+            }
+            lowerText.contains("time") || lowerText.contains("সময়") || lowerText.contains("সময়") -> {
+                speak("এখন সময় ${java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())}")
                 startListeningLoop()
             }
-            else -> {
-                callOpenRouter(text)
+            lowerText.contains("date") || lowerText.contains("তারিখ") -> {
+                speak("আজ ${java.text.SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).format(Date())}")
+                startListeningLoop()
             }
+            lowerText.contains("volume up") || lowerText.contains("শব্দ বাড়াও") || lowerText.contains("ভলিউম বাড়াও") -> {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                speak("ভলিউম বাড়ানো হয়েছে।")
+                startListeningLoop()
+            }
+            lowerText.contains("volume down") || lowerText.contains("শব্দ কমাও") || lowerText.contains("ভলিউম কমাও") -> {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                speak("ভলিউম কমানো হয়েছে।")
+                startListeningLoop()
+            }
+            lowerText.contains("scroll down") || lowerText.contains("নিচে স্ক্রল") -> {
+                AssistantAccessibilityService.instance?.performScrollDown()
+                speak("স্ক্রল করছি।")
+                startListeningLoop()
+            }
+            lowerText.contains("scroll up") || lowerText.contains("উপরে স্ক্রল") -> {
+                AssistantAccessibilityService.instance?.performScrollUp()
+                speak("উপরে স্ক্রল করছি।")
+                startListeningLoop()
+            }
+            else -> callOpenRouter(command)
         }
     }
 
@@ -250,8 +292,14 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
         })
     }
 
-    override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts.language = Locale.US }
-    override fun onEndOfSpeech() { isListening = false ; startListeningLoop() }
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val preferred = Locale.getDefault()
+            if (tts.isLanguageAvailable(preferred) >= TextToSpeech.LANG_AVAILABLE) tts.language = preferred
+            else tts.language = Locale.US
+        }
+    }
+    override fun onEndOfSpeech() { isListening = false }
     override fun onReadyForSpeech(params: Bundle?) {}
     override fun onBeginningOfSpeech() {}
     override fun onBufferReceived(buffer: ByteArray?) {}
@@ -259,9 +307,15 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
     override fun onEvent(eventType: Int, params: Bundle?) {}
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
+        if (::tts.isInitialized) tts.shutdown()
+        if (::windowManager.isInitialized && ::bubbleView.isInitialized) {
+            try { windowManager.removeView(bubbleView) } catch (_: Exception) { }
+        }
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         super.onDestroy()
-        tts.shutdown() ; speechRecognizer.destroy()
-        windowManager.removeView(bubbleView)
     }
 
     private fun createNotificationChannel() {
@@ -273,8 +327,8 @@ class FloatingBubbleService : Service(), RecognitionListener, TextToSpeech.OnIni
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, "CHANNEL_ID")
-            .setContentTitle("Maya OS Initialized")
-            .setContentText("Always by your side.")
+            .setContentTitle("JARVIS Assistant is running")
+            .setContentText("Voice assistant active. Say “Jarvis” to wake it.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
