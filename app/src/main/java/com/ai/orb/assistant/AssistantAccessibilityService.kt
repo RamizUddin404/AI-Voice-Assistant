@@ -30,14 +30,25 @@ class AssistantAccessibilityService : AccessibilityService() {
     }
 
     fun performScrollDown() {
-        val path = Path()
-        path.moveTo(500f, 1500f)
-        path.lineTo(500f, 500f)
-        
+        dispatchScroll(0f, 1f)
+    }
+
+    fun performScrollUp() {
+        dispatchScroll(1f, 0f)
+    }
+
+    private fun dispatchScroll(from: Float, to: Float) {
+        val metrics = resources.displayMetrics
+        val x = metrics.widthPixels * 0.5f
+        val startY = if (from > to) metrics.heightPixels * 0.75f else metrics.heightPixels * 0.3f
+        val endY = if (from > to) metrics.heightPixels * 0.3f else metrics.heightPixels * 0.75f
+        val path = Path().apply {
+            moveTo(x, startY)
+            lineTo(x, endY)
+        }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 500))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 400))
             .build()
-        
         dispatchGesture(gesture, null, null)
     }
 
