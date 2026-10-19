@@ -39,6 +39,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 102) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                checkAndRequestPermissions()
+            } else {
+                Toast.makeText(this, "Microphone permission is required for voice commands.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun checkAndRequestPermissions() {
         when {
             ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED -> {
