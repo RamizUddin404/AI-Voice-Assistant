@@ -14,6 +14,7 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -28,7 +29,7 @@ class MainActivity : AppCompatActivity() {
         etApiKey.setText(prefs.getString("api_key", ""))
 
         btnStart.setOnClickListener {
-            val key = etApiKey.text.toString()
+            val key = etApiKey.text.toString().trim()
             if (key.isEmpty()) {
                 Toast.makeText(this, "Please enter an API Key", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -58,8 +59,10 @@ class MainActivity : AppCompatActivity() {
                 startActivity(intent)
             }
             else -> {
-                startService(Intent(this, FloatingBubbleService::class.java))
-                Toast.makeText(this, "Maya is now active in background!", Toast.LENGTH_SHORT).show()
+                val serviceIntent = Intent(this, FloatingBubbleService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(this, serviceIntent)
+                else startService(serviceIntent)
+                Toast.makeText(this, "JARVIS is now active in background!", Toast.LENGTH_SHORT).show()
                 finish()
             }
         }
